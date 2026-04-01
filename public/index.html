@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Mini ERP</title>
+</head>
+<body>
+  <script>
+    var token = localStorage.getItem('erp_token');
+    window.location.href = token ? 'pages/dashboard.html' : 'pages/login.html';
+  </script>
+</body>
+</html>

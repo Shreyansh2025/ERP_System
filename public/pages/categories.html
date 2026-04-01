@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Categories — Mini ERP</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="../css/style.css" rel="stylesheet">
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/layout.js"></script>
+  <script>
+    renderLayout('Categories', 'categories');
+
+    // Stores the ID of the category being edited (null = we are adding a new one)
+    let editingId = null;
+
+    loadCategories();
+
+    async function loadCategories(page = 1) {
+      const content = getPageContent();
+      const token = localStorage.getItem('erp_token');
+
+      const response = await fetch(`/api/categories?page=${page}&limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('erp_token');
+        localStorage.removeItem('erp_user');
+        window.location.href = 'login.html';
+        return;
+      }
+
+      const res = await response.json();
+      let rows = '';
+      if (response.ok && res.data.length) {
+        rows = res.data.map(c => `
+          <tr>
+            <td>${c.id}</td>
+            <td><strong>${c.name}</strong></td>
+            <td>${formatDate(c.created_at)}</td>
+            <td>
+              ${hasAccess('Categories', 'update') ? `<button class="btn btn-outline-primary btn-action" onclick="editCategory(${c.id}, '${c.name}')"><i class="bi bi-pencil"></i></button>` : ''}
+              ${hasAccess('Categories', 'delete') ? `<button class="btn btn-outline-danger btn-action" onclick="deleteCategory(${c.id})"><i class="bi bi-trash"></i></button>` : ''}
+            </td>
+          </tr>`).join('');
+      }
+
+      content.innerHTML = `
+        <div class="row g-4">
+          ${hasAccess('Categories', 'create') ? `<div class="col-md-4">
+            <div class="form-card">
+              <h6 class="fw-bold mb-3" id="form-title"><i class="bi bi-plus-circle"></i> Add Category</h6>
+              <form onsubmit="addCategory(event)">
+                <div class="mb-3">
+                  <label class="form-label">Category Name *</label>
+                  <input type="text" class="form-control" id="f-name" required placeholder="e.g. Electronics">
+                </div>
+                <div class="d-flex gap-2">
+                  <button type="submit" class="btn btn-primary btn-sm" id="f-btn"><i class="bi bi-check-lg"></i> Save</button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetForm()" style="display:none" id="f-cancel">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </div>` : ''}
+          <div class="${hasAccess('Categories', 'create') ? 'col-md-8' : 'col-12'}"
+            <div class="data-table">
+              <table class="table table-hover">
+                <thead><tr><th>#</th><th>Name</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody>${rows || '<tr><td colspan="4" class="text-center text-muted py-4">No categories yet</td></tr>'}</tbody>
+              </table>
+            </div>
+            <div class="mt-3">${buildPagination(res.total, res.page, res.limit, 'loadCategories')}</div>
+          </div>
+        </div>`;
+    }
+
+    // --- ADD a new category (POST) ---
+    async function addCategory(e) {
+      if (!hasAccess('Categories', 'create')) { showToast('No permission to create categories', 'error'); return; }
+      e.preventDefault();
+      const name = document.getElementById('f-name').value;
+      const token = localStorage.getItem('erp_token');
+
+      const response = await fetch('/api/categories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('erp_token');
+        localStorage.removeItem('erp_user');
+        window.location.href = 'login.html';
+        return;
+      }
+
+      const res = await response.json();
+      if (response.ok) {
+        showToast(res.message);
+        resetForm();
+        loadCategories();
+      } else {
+        showToast(res.message, 'error');
+      }
+    }
+
+    // --- UPDATE an existing category (PUT) ---
+    async function updateCategory(e) {
+      e.preventDefault();
+      const name = document.getElementById('f-name').value;
+      const token = localStorage.getItem('erp_token');
+
+      const response = await fetch(`/api/categories/${editingId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('erp_token');
+        localStorage.removeItem('erp_user');
+        window.location.href = 'login.html';
+        return;
+      }
+
+      const res = await response.json();
+      if (response.ok) {
+        showToast(res.message);
+        resetForm();
+        loadCategories();
+      } else {
+        showToast(res.message, 'error');
+      }
+    }
+
+    // Fill the form for editing and switch submit button to call updateCategory
+    function editCategory(id, name) {
+      if (!hasAccess('Categories', 'update')) { showToast('No permission to edit categories', 'error'); return; }
+      editingId = id;
+      document.getElementById('f-name').value = name;
+      document.getElementById('form-title').innerHTML = '<i class="bi bi-pencil"></i> Edit Category';
+      document.getElementById('f-btn').innerHTML = '<i class="bi bi-check-lg"></i> Update';
+      document.getElementById('f-cancel').style.display = 'inline-block';
+      document.querySelector('form').onsubmit = updateCategory;
+    }
+
+    // Clear the form and switch submit button back to call addCategory
+    function resetForm() {
+      editingId = null;
+      document.getElementById('f-name').value = '';
+      document.getElementById('form-title').innerHTML = '<i class="bi bi-plus-circle"></i> Add Category';
+      document.getElementById('f-btn').innerHTML = '<i class="bi bi-check-lg"></i> Save';
+      document.getElementById('f-cancel').style.display = 'none';
+      document.querySelector('form').onsubmit = addCategory;
+    }
+
+    // --- DELETE a category ---
+    async function deleteCategory(id) {
+      if (!hasAccess('Categories', 'delete')) { showToast('No permission to delete categories', 'error'); return; }
+      if (!confirmDelete('category')) return;
+
+      const token = localStorage.getItem('erp_token');
+      const response = await fetch(`/api/categories/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('erp_token');
+        localStorage.removeItem('erp_user');
+        window.location.href = 'login.html';
+        return;
+      }
+
+      const res = await response.json();
+      if (response.ok) {
+        showToast('Category deleted');
+        loadCategories();
+      } else {
+        showToast(res.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

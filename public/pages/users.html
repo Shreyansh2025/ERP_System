@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User & Role Management — Mini ERP</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="../css/style.css" rel="stylesheet">
+  <style>
+    .nav-tabs .nav-link { font-weight: 600; color: #64748b; }
+    .nav-tabs .nav-link.active { color: #3b82f6; border-bottom: 2px solid #3b82f6; }
+    .perm-matrix { font-size: 0.85rem; }
+    .perm-matrix th { text-align: center; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .perm-matrix td { text-align: center; vertical-align: middle; }
+    .perm-matrix td:first-child { text-align: left; font-weight: 500; }
+    .perm-matrix .form-check-input { width: 1.15em; height: 1.15em; cursor: pointer; }
+    .role-badge { font-size: 0.75rem; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
+    .role-admin { background: #fee2e2; color: #dc2626; }
+    .role-manager { background: #dbeafe; color: #2563eb; }
+    .role-salesman { background: #dcfce7; color: #16a34a; }
+    .role-custom { background: #f3e8ff; color: #7c3aed; }
+    .card-stat { border-radius: 12px; border: 1px solid #e2e8f0; padding: 16px 20px; background: #fff; }
+    .card-stat .stat-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/layout.js"></script>
+  <script>
+    renderLayout('User & Role Management', 'users');
+    const token = localStorage.getItem('erp_token');
+    let currentPage = 1;
+    let rolesList = [];
+    let modulesList = [];
+    let activeTab = 'users';
+
+    init();
+
+    async function init() {
+      const [rolesRes, modulesRes] = await Promise.all([
+        fetch('/api/roles', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        fetch('/api/modules', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      ]);
+      rolesList = rolesRes.data || [];
+      modulesList = modulesRes.data || [];
+      showMainView();
+    }
+
+    function showMainView() {
+      getPageContent().innerHTML = `
+        <ul class="nav nav-tabs mb-4" id="mainTabs">
+          <li class="nav-item">
+            <a class="nav-link ${activeTab === 'users' ? 'active' : ''}" href="#" onclick="activeTab='users'; showMainView(); return false;">
+              <i class="bi bi-people-fill"></i> Users
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link ${activeTab === 'roles' ? 'active' : ''}" href="#" onclick="activeTab='roles'; showMainView(); return false;">
+              <i class="bi bi-shield-lock-fill"></i> Roles & Permissions
+            </a>
+          </li>
+        </ul>
+        <div id="tab-content"></div>`;
+      if (activeTab === 'users') showUsersTab();
+      else showRolesTab();
+    }
+
+    // ══════════════════════════════════
+    //  USERS TAB
+    // ══════════════════════════════════
+    function showUsersTab() {
+      document.getElementById('tab-content').innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="d-flex gap-2">
+            <input type="text" class="form-control form-control-sm" id="search-input" placeholder="Search users..." style="width:250px">
+            <button class="btn btn-sm btn-outline-primary" onclick="loadUsers()"><i class="bi bi-search"></i></button>
+          </div>
+          ${hasAccess('Users', 'create') ? `<button class="btn btn-primary btn-sm" onclick="showUserForm()"><i class="bi bi-plus-lg"></i> Add User</button>` : ''}
+        </div>
+        <div id="table-area"></div>`;
+      document.getElementById('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') loadUsers(); });
+      loadUsers();
+    }
+
+    async function loadUsers(page = 1) {
+      currentPage = page;
+      const search = document.getElementById('search-input')?.value || '';
+      const response = await fetch(`/api/users?page=${page}&limit=10&search=${encodeURIComponent(search)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) { window.location.href = 'login.html'; return; }
+      const res = await response.json();
+      const area = document.getElementById('table-area');
+      if (!response.ok || !res.data.length) {
+        area.innerHTML = '<div class="empty-state"><i class="bi bi-people"></i><p>No users found</p></div>';
+        return;
+      }
+      const currentUser = JSON.parse(localStorage.getItem('erp_user') || '{}');
+      let rows = res.data.map(u => `
+        <tr>
+          <td>${u.id}</td>
+          <td><strong>${u.name}</strong></td>
+          <td>${u.email}</td>
+          <td>${getRoleBadge(u.role ? u.role.role_name : '-')}</td>
+          <td>${formatDate(u.created_at)}</td>
+          <td>
+            ${hasAccess('Users', 'update') ? `<button class="btn btn-outline-primary btn-action" title="Edit" onclick="showUserForm(${u.id})"><i class="bi bi-pencil"></i></button>` : ''}
+            ${u.id !== currentUser.id && hasAccess('Users', 'delete') ? `<button class="btn btn-outline-danger btn-action" title="Delete" onclick="deleteUser(${u.id})"><i class="bi bi-trash"></i></button>` : ''}
+          </td>
+        </tr>`).join('');
+      area.innerHTML = `
+        <div class="data-table">
+          <table class="table table-hover">
+            <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="mt-3">${buildPagination(res.total, parseInt(res.page), parseInt(res.limit), 'loadUsers')}</div>`;
+    }
+
+    function getRoleBadge(name) {
+      const cls = { Admin: 'role-admin', Manager: 'role-manager', Salesman: 'role-salesman' };
+      return `<span class="role-badge ${cls[name] || 'role-custom'}">${name}</span>`;
+    }
+
+    // ── USER FORM (Add / Edit with editable permission matrix) ──
+    let userPermissions = {}; // stores user's complete permissions keyed by module_id
+
+    async function showUserForm(userId) {
+      if (userId && !hasAccess('Users', 'update')) { showToast('No permission to edit users', 'error'); return; }
+      if (!userId && !hasAccess('Users', 'create')) { showToast('No permission to create users', 'error'); return; }
+      let userData = null;
+      userPermissions = {};
+      if (userId) {
+        const [userRes, permRes] = await Promise.all([
+          fetch(`/api/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+          fetch(`/api/users/${userId}/permissions`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        ]);
+        userData = userRes.data;
+        // load user's own permissions
+        (permRes.data || []).forEach(p => {
+          userPermissions[p.module_id] = { can_read: p.can_read, can_create: p.can_create, can_update: p.can_update, can_delete: p.can_delete };
+        });
+      }
+      const isEdit = !!userData;
+      const roleOpts = rolesList.map(r => `<option value="${r.id}" ${userData && userData.role_id === r.id ? 'selected' : ''}>${r.role_name}</option>`).join('');
+
+      getPageContent().innerHTML = `
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <button class="btn btn-sm btn-outline-secondary" onclick="activeTab='users'; showMainView()"><i class="bi bi-arrow-left"></i> Back</button>
+          <h5 class="mb-0">${isEdit ? 'Edit' : 'Add'} User</h5>
+        </div>
+        <div class="form-card" style="max-width:900px">
+          <form onsubmit="saveUser(event, ${userId || 'null'})">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="f-name" required value="${userData?.name || ''}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Email <span class="text-danger">*</span></label>
+                <input type="email" class="form-control" id="f-email" required value="${userData?.email || ''}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Password ${isEdit ? '<small class="text-muted">(leave blank to keep)</small>' : '<span class="text-danger">*</span>'}</label>
+                <input type="password" class="form-control" id="f-password" ${isEdit ? '' : 'required'} minlength="4">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Role <span class="text-danger">*</span></label>
+                <select class="form-select" id="f-role" required onchange="onUserRoleChange()" ${isEdit ? 'disabled' : ''}>
+                  <option value="">Select Role</option>${roleOpts}
+                </select>
+              </div>
+              <div class="col-12" id="perm-section"></div>
+              <div class="col-12">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> ${isEdit ? 'Update' : 'Save'}</button>
+              </div>
+            </div>
+          </form>
+        </div>`;
+      if (!isEdit) onUserRoleChange();
+    }
+
+    function onUserRoleChange() {
+      const roleId = parseInt(document.getElementById('f-role').value);
+      const section = document.getElementById('perm-section');
+      const role = rolesList.find(r => r.id === roleId);
+      if (!role) { section.innerHTML = ''; return; }
+
+      // build role defaults map (template from null user_id permissions)
+      const roleDefaults = {};
+      (role.permissions || []).forEach(p => {
+        roleDefaults[p.module_id] = { can_read: p.can_read, can_create: p.can_create, can_update: p.can_update, can_delete: p.can_delete };
+      });
+
+      // if user has their own permissions use those, otherwise start from role defaults
+      const hasUserPerms = Object.keys(userPermissions).length > 0;
+
+      let moduleRows = modulesList.map(m => {
+        const final = hasUserPerms ? (userPermissions[m.id] || {}) : (roleDefaults[m.id] || {});
+        const chk = (field) => final[field] ? 'checked' : '';
+        return `
+        <tr>
+          <td>${m.module_name}</td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_read" ${chk('can_read')}></td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_create" ${chk('can_create')}></td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_update" ${chk('can_update')}></td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_delete" ${chk('can_delete')}></td>
+          <td><input class="form-check-input" type="checkbox" onchange="toggleAllForModule(this, ${m.id})" ${final.can_read && final.can_create && final.can_update && final.can_delete ? 'checked' : ''}></td>
+        </tr>`;
+      }).join('');
+
+      section.innerHTML = `
+        <div class="alert alert-info p-2 mb-2"><i class="bi bi-info-circle"></i> <strong>${role.role_name}</strong> default permissions are pre-selected. You can customize for this user.</div>
+        <div class="data-table" style="display:none">
+          <table class="table table-sm perm-matrix mb-0">
+            <thead>
+              <tr>
+                <th style="text-align:left">Module</th>
+                <th><i class="bi bi-eye"></i> Read</th>
+                <th><i class="bi bi-plus-circle"></i> Create</th>
+                <th><i class="bi bi-arrow-repeat"></i> Update</th>
+                <th><i class="bi bi-trash"></i> Delete</th>
+                <th>All</th>
+              </tr>
+            </thead>
+            <tbody>${moduleRows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    async function saveUser(e, userId) {
+      e.preventDefault();
+      const body = {
+        name: document.getElementById('f-name').value,
+        email: document.getElementById('f-email').value,
+      };
+      const pwd = document.getElementById('f-password').value;
+      if (pwd) body.password = pwd;
+      if (!userId && !pwd) { showToast('Password is required', 'error'); return; }
+
+      // only send role and permissions when creating a new user
+      if (!userId) {
+        const roleId = parseInt(document.getElementById('f-role').value);
+        body.role_id = roleId;
+
+        // collect ALL permissions from checkboxes (send complete set to backend)
+        const permMap = {};
+        document.querySelectorAll('.perm-cb').forEach(cb => {
+          const mid = parseInt(cb.dataset.mid);
+          const action = cb.dataset.action;
+          if (!permMap[mid]) permMap[mid] = { module_id: mid, can_read: false, can_create: false, can_update: false, can_delete: false };
+          permMap[mid][action] = cb.checked;
+        });
+
+        // send all permissions — even unchecked modules (backend stores complete set per user)
+        body.permissions = Object.values(permMap);
+      }
+
+      const url = userId ? `/api/users/${userId}` : '/api/users';
+      const method = userId ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const res = await response.json();
+      if (response.ok) { showToast(res.message); activeTab = 'users'; showMainView(); }
+      else { showToast(res.message, 'error'); }
+    }
+
+    async function deleteUser(id) {
+      if (!hasAccess('Users', 'delete')) { showToast('No permission to delete users', 'error'); return; }
+      if (!confirmDelete('user')) return;
+      const response = await fetch(`/api/users/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const res = await response.json();
+      if (response.ok) { showToast('User deleted'); loadUsers(currentPage); }
+      else { showToast(res.message, 'error'); }
+    }
+
+    // ══════════════════════════════════
+    //  ROLES TAB
+    // ══════════════════════════════════
+    function showRolesTab() {
+      const container = document.getElementById('tab-content');
+      // summary stats
+      let stats = `
+        <div class="row g-3 mb-4">
+          <div class="col-md-3">
+            <div class="card-stat d-flex align-items-center gap-3">
+              <div class="stat-icon bg-primary bg-opacity-10 text-primary"><i class="bi bi-shield-check"></i></div>
+              <div><div class="text-muted small">Total Roles</div><div class="fw-bold fs-5">${rolesList.length}</div></div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card-stat d-flex align-items-center gap-3">
+              <div class="stat-icon bg-success bg-opacity-10 text-success"><i class="bi bi-grid-3x3"></i></div>
+              <div><div class="text-muted small">Modules</div><div class="fw-bold fs-5">${modulesList.length}</div></div>
+            </div>
+          </div>
+        </div>`;
+
+      let roleCards = rolesList.map(r => {
+        const permCount = (r.permissions || []).length;
+        return `
+        <div class="col-md-6 col-lg-4">
+          <div class="form-card h-100">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <div>
+                <h6 class="mb-1">${getRoleBadge(r.role_name)} </h6>
+                <small class="text-muted">${permCount} module permission(s)</small>
+              </div>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="showRoleForm(${r.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteRole(${r.id})"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+            <div class="mt-2">
+              ${(r.permissions || []).slice(0, 5).map(p => `<span class="badge bg-light text-dark border me-1 mb-1">${p.module ? p.module.module_name : '?'}</span>`).join('')}
+              ${permCount > 5 ? `<span class="badge bg-light text-muted border">+${permCount - 5} more</span>` : ''}
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+      container.innerHTML = `
+        ${stats}
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">All Roles</h6>
+          <button class="btn btn-primary btn-sm" onclick="showRoleForm()"><i class="bi bi-plus-lg"></i> Create Role</button>
+        </div>
+        <div class="row g-3">${roleCards}</div>`;
+    }
+
+    // ── ROLE FORM (Add / Edit with permission matrix) ──
+    async function showRoleForm(roleId) {
+      let roleData = null;
+      let existingPerms = {};
+      if (roleId) {
+        roleData = rolesList.find(r => r.id === roleId);
+        const permRes = await fetch(`/api/roles/${roleId}/permissions`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+        (permRes.data || []).forEach(p => {
+          existingPerms[p.module_id] = { can_read: p.can_read, can_create: p.can_create, can_update: p.can_update, can_delete: p.can_delete };
+        });
+      }
+      const isEdit = !!roleData;
+
+      let moduleRows = modulesList.map(m => {
+        const ep = existingPerms[m.id] || {};
+        const chk = (field) => ep[field] ? 'checked' : '';
+        return `
+        <tr>
+          <td>${m.module_name}</td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_read" ${chk('can_read')}></td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_create" ${chk('can_create')}></td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_update" ${chk('can_update')}></td>
+          <td><input class="form-check-input perm-cb" type="checkbox" data-mid="${m.id}" data-action="can_delete" ${chk('can_delete')}></td>
+          <td><input class="form-check-input" type="checkbox" onchange="toggleAllForModule(this, ${m.id})" ${ep.can_read && ep.can_create && ep.can_update && ep.can_delete ? 'checked' : ''}></td>
+        </tr>`;
+      }).join('');
+
+      getPageContent().innerHTML = `
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <button class="btn btn-sm btn-outline-secondary" onclick="activeTab='roles'; showMainView()"><i class="bi bi-arrow-left"></i> Back</button>
+          <h5 class="mb-0">${isEdit ? 'Edit' : 'Create'} Role</h5>
+        </div>
+        <div class="form-card" style="max-width:900px">
+          <form onsubmit="saveRole(event, ${roleId || 'null'})">
+            <div class="row g-3 mb-4">
+              <div class="col-md-6">
+                <label class="form-label">Role Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="f-role-name" required value="${roleData?.role_name || ''}" placeholder="e.g. Accountant, Warehouse Staff...">
+              </div>
+            </div>
+            <h6 class="mb-2"><i class="bi bi-shield-check"></i> Permission Matrix</h6>
+            <p class="text-muted small mb-3">Select which modules this role can access and what actions they can perform.</p>
+            <div class="data-table mb-3">
+              <table class="table table-sm perm-matrix mb-0">
+                <thead>
+                  <tr>
+                    <th style="text-align:left">Module</th>
+                    <th><i class="bi bi-eye"></i> Read</th>
+                    <th><i class="bi bi-plus-circle"></i> Create</th>
+                    <th><i class="bi bi-arrow-repeat"></i> Update</th>
+                    <th><i class="bi bi-trash"></i> Delete</th>
+                    <th>All</th>
+                  </tr>
+                </thead>
+                <tbody>${moduleRows}</tbody>
+                <tfoot>
+                  <tr class="table-light">
+                    <td class="fw-bold">Select All</td>
+                    <td><input class="form-check-input" type="checkbox" onchange="toggleColumn(this, 'can_read')"></td>
+                    <td><input class="form-check-input" type="checkbox" onchange="toggleColumn(this, 'can_create')"></td>
+                    <td><input class="form-check-input" type="checkbox" onchange="toggleColumn(this, 'can_update')"></td>
+                    <td><input class="form-check-input" type="checkbox" onchange="toggleColumn(this, 'can_delete')"></td>
+                    <td><input class="form-check-input" type="checkbox" onchange="toggleAllPerms(this)"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> ${isEdit ? 'Update Role' : 'Create Role'}</button>
+          </form>
+        </div>`;
+    }
+
+    function toggleAllForModule(el, moduleId) {
+      const checked = el.checked;
+      document.querySelectorAll(`.perm-cb[data-mid="${moduleId}"]`).forEach(cb => cb.checked = checked);
+    }
+
+    function toggleColumn(el, action) {
+      const checked = el.checked;
+      document.querySelectorAll(`.perm-cb[data-action="${action}"]`).forEach(cb => cb.checked = checked);
+    }
+
+    function toggleAllPerms(el) {
+      const checked = el.checked;
+      document.querySelectorAll('.perm-cb').forEach(cb => cb.checked = checked);
+    }
+
+    async function saveRole(e, roleId) {
+      e.preventDefault();
+      const role_name = document.getElementById('f-role-name').value.trim();
+      if (!role_name) { showToast('Role name is required', 'error'); return; }
+
+      // collect permissions from checkboxes
+      const permMap = {};
+      document.querySelectorAll('.perm-cb').forEach(cb => {
+        const mid = parseInt(cb.dataset.mid);
+        const action = cb.dataset.action;
+        if (!permMap[mid]) permMap[mid] = { module_id: mid, can_read: false, can_create: false, can_update: false, can_delete: false };
+        permMap[mid][action] = cb.checked;
+      });
+      // only include modules where at least one permission is checked
+      const permissions = Object.values(permMap).filter(p => p.can_read || p.can_create || p.can_update || p.can_delete);
+
+      const url = roleId ? `/api/roles/${roleId}` : '/api/roles';
+      const method = roleId ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ role_name, permissions }),
+      });
+      const res = await response.json();
+      if (response.ok) {
+        showToast(res.message);
+        // refresh roles list
+        const rolesRes = await fetch('/api/roles', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+        rolesList = rolesRes.data || [];
+        activeTab = 'roles';
+        showMainView();
+      } else {
+        showToast(res.message, 'error');
+      }
+    }
+
+    async function deleteRole(id) {
+      if (!confirm('Are you sure you want to delete this role? This cannot be undone.')) return;
+      const response = await fetch(`/api/roles/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const res = await response.json();
+      if (response.ok) {
+        showToast('Role deleted');
+        const rolesRes = await fetch('/api/roles', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+        rolesList = rolesRes.data || [];
+        showRolesTab();
+      } else {
+        showToast(res.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,120 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Mini ERP</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="../css/style.css" rel="stylesheet">
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/utils.js"></script>
+  <script src="../js/layout.js"></script>
+  <script>
+    renderLayout('Dashboard', 'dashboard');
+    renderLoadingState();
+    loadDashboard();
+
+    function renderLoadingState() {
+      getPageContent().innerHTML = '<div class="dashboard-panel text-center text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading dashboard...</div>';
+    }
+
+    async function loadDashboard() {
+      const token = localStorage.getItem('erp_token');
+      const response = await fetch('/api/dashboard/summary', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.status === 401) { localStorage.removeItem('erp_token'); localStorage.removeItem('erp_user'); window.location.href = 'login.html'; return; }
+      const res = await response.json();
+      res.success = response.ok;
+      if (!res.success) {
+        getPageContent().innerHTML = `
+          <div class="empty-state">
+            <i class="bi bi-speedometer2"></i>
+            <p>${res.message || 'Unable to load dashboard summary'}</p>
+            <button class="btn btn-primary btn-sm" onclick="loadDashboard()"><i class="bi bi-arrow-clockwise"></i> Retry</button>
+          </div>`;
+        return;
+      }
+
+      const counts = res.counts || {};
+      const totals = res.totals || {};
+
+      const statCards = [
+        ['Customers', counts.customers || 0, 'bi-people-fill', 'bg-primary-subtle text-primary'],
+        ['Vendors', counts.vendors || 0, 'bi-truck', 'bg-warning-subtle text-warning'],
+        // ['Products', counts.products || 0, 'bi-box-fill', 'bg-secondary-subtle text-secondary'],
+        // ['Categories', counts.categories || 0, 'bi-tags-fill', 'bg-dark-subtle text-dark'],
+        ['Sales Orders', counts.salesOrders || 0, 'bi-receipt', 'bg-success-subtle text-success'],
+        ['Purchase Orders', counts.purchaseOrders || 0, 'bi-cart-fill', 'bg-info-subtle text-info'],
+        // ['Customer Payments', counts.customerPayments || 0, 'bi-cash-stack', 'bg-success-subtle text-success'],
+        // ['Vendor Payments', counts.vendorPayments || 0, 'bi-wallet2', 'bg-danger-subtle text-danger'],
+      ].map(([label, value, icon, colorClass]) => `
+        <div class="col-12 col-sm-6 col-xl-3">
+          <div class="dashboard-stat h-100">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <div>
+                <div class="dashboard-stat-label">${label}</div>
+                <div class="dashboard-stat-value">${value}</div>
+              </div>
+              <div class="dashboard-stat-icon ${colorClass}"><i class="bi ${icon}"></i></div>
+            </div>
+          </div>
+        </div>`).join('');
+
+      // build low stock panel (or empty string if none)
+      const lowStockHtml = (res.lowStockProducts && res.lowStockProducts.length) ? `
+          <div class="col-12 col-lg-4">
+            <div class="dashboard-panel h-100">
+              <h6 class="mb-3"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Low Stock (< 10)</h6>
+              <div style="max-height:210px; overflow-y:auto">
+                <table class="table table-sm table-hover mb-0">
+                  <thead style="position:sticky;top:0;background:#fff"><tr><th>#</th><th>Product</th><th>Qty</th></tr></thead>
+                  <tbody>${res.lowStockProducts.map((p, i) => `
+                    <tr><td>${i+1}</td><td>${p.name}</td><td><span class="badge ${p.stock_quantity <= 0 ? 'bg-danger' : 'bg-warning text-dark'}">${p.stock_quantity}</span></td></tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>` : '';
+
+      // decide column sizes — if low stock exists use 3 cols, otherwise 2 cols
+      const hasLowStock = lowStockHtml.length > 0;
+      const summaryCol = hasLowStock ? 'col-lg-4' : 'col-lg-6';
+      const quickCol = hasLowStock ? 'col-lg-4' : 'col-lg-6';
+
+      getPageContent().innerHTML = `
+        <div class="row g-3 mb-3">${statCards}</div>
+
+        <div class="row g-3">
+          <div class="col-12 ${summaryCol}">
+            <div class="dashboard-panel h-100">
+              <h6 class="mb-3"><i class="bi bi-bar-chart-line me-2"></i>Summary</h6>
+              <div class="d-flex justify-content-between py-2 border-bottom"><span class="text-muted">Stock Quantity</span><strong>${totals.stockQuantity || 0}</strong></div>
+              <div class="d-flex justify-content-between py-2 border-bottom"><span class="text-muted">Total Received</span><strong class="text-success">${formatCurrency(totals.customerPaymentsAmount || 0)}</strong></div>
+              <div class="d-flex justify-content-between py-2"><span class="text-muted">Total Paid</span><strong class="text-danger">${formatCurrency(totals.vendorPaymentsAmount || 0)}</strong></div>
+            </div>
+          </div>
+          ${lowStockHtml}
+          <div class="col-12 ${quickCol}">
+            <div class="dashboard-panel h-100">
+              <h6 class="mb-3"><i class="bi bi-lightning me-2"></i>Quick Access</h6>
+              <div class="row g-2">
+                ${hasAccess('Customers') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="customers.html"><i class="bi bi-people-fill me-1"></i> Customers</a></div>' : ''}
+                ${hasAccess('Vendors') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="vendors.html"><i class="bi bi-truck me-1"></i> Vendors</a></div>' : ''}
+                ${hasAccess('Products') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="products.html"><i class="bi bi-box-fill me-1"></i> Products</a></div>' : ''}
+                ${hasAccess('Categories') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="categories.html"><i class="bi bi-tags-fill me-1"></i> Categories</a></div>' : ''}
+                ${hasAccess('Sales Orders') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="salesOrders.html"><i class="bi bi-receipt me-1"></i> Sales Orders</a></div>' : ''}
+                ${hasAccess('Purchase Orders') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="purchaseOrders.html"><i class="bi bi-cart-fill me-1"></i> Purchase Orders</a></div>' : ''}
+                ${hasAccess('Customer Payments') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="customer-payments.html"><i class="bi bi-cash-stack me-1"></i> Customer Payments</a></div>' : ''}
+                ${hasAccess('Vendor Payments') ? '<div class="col-6"><a class="btn btn-light btn-sm text-start w-100" href="vendor-payments.html"><i class="bi bi-wallet2 me-1"></i> Vendor Payments</a></div>' : ''}
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+  </script>
+</body>
+</html>
