@@ -13,6 +13,11 @@ const sequelize = new Sequelize(
             timestamps: false,
             underscored: true,
         },
+        dialectOptions: {
+        ssl: {
+            rejectUnauthorized: false
+        }
+    }
     }
 );
 
