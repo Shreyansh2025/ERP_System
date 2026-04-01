@@ -49,6 +49,23 @@ function adminMiddleware(req, res, next) {
     }
     next();
 }
+// Database connection test route
+app.get('/api/health-check', async (req, res) => {
+    try {
+        await sequelize.authenticate();
+        res.json({ 
+            status: 'success', 
+            message: 'Render is successfully connected to Aiven MySQL!' 
+        });
+    } catch (error) {
+        console.error('Database connection failed:', error);
+        res.status(500).json({ 
+            status: 'error', 
+            message: 'Connection failed', 
+            details: error.message 
+        });
+    }
+});
 
 // user login api
 app.post('/api/auth/login', async (req, res) => {
