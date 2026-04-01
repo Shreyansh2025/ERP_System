@@ -273,7 +273,7 @@ async function seedRolesAndAdmin() {
     }
 }
 
-const PORT = process.env.PORT
+const PORT = process.env.PORT || 5000;
 
 // sync db and start server
 sequelize.sync({ alter: true })
